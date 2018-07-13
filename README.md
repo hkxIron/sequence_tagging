@@ -113,3 +113,5 @@ train_filename = "data/coNLL/eng/eng.train.iob"
 
 This project is licensed under the terms of the apache 2.0 license (as Tensorflow and derivatives). If used for research, citation would be appreciated.
 
+## requiment
+This project must be run in python3.
