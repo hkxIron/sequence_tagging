@@ -71,6 +71,8 @@ class CoNLLDataset(object):
                         yield words, tags
                         words, tags = [], []
                 else:
+                    # line: European B-ORG
+                    #       Union I-ORG
                     ls = line.split(' ')
                     word, tag = ls[0],ls[-1]
                     if self.processing_word is not None:

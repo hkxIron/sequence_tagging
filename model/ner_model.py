@@ -1,3 +1,6 @@
+# blog: https://guillaumegenthial.github.io/sequence-tagging-with-tensorflow.html
+#   https://guillaumegenthial.github.io/serving.html
+
 import numpy as np
 import os
 import tensorflow as tf
@@ -103,54 +106,73 @@ class NERModel(BaseModel):
         with tf.variable_scope("words"):
             if self.config.embeddings is None:
                 self.logger.info("WARNING: randomly initializing word vectors")
+                # shape: vocab_word * word_dim
                 _word_embeddings = tf.get_variable(
                         name="_word_embeddings",
                         dtype=tf.float32,
                         shape=[self.config.nwords, self.config.dim_word])
             else:
+                # You should use tf.Variable with argument trainable=False instead of tf.constant,
+                # otherwise you risk memory issues!
                 _word_embeddings = tf.Variable(
                         self.config.embeddings,
                         name="_word_embeddings",
                         dtype=tf.float32,
                         trainable=self.config.train_embeddings)
-
+            # word_ids: [batch size, max length of sentence in batch]
+            # word_embeddings: [ batch_size, max_length_sentence, word_dim]
             word_embeddings = tf.nn.embedding_lookup(_word_embeddings,
                     self.word_ids, name="word_embeddings")
 
         with tf.variable_scope("chars"):
             if self.config.use_chars:
                 # get char embeddings matrix
+                # shape : vocab_char * char_dim
                 _char_embeddings = tf.get_variable(
                         name="_char_embeddings",
                         dtype=tf.float32,
                         shape=[self.config.nchars, self.config.dim_char])
+                # char_ids: [ batch size, max length of sentence, max length of word ]
+                # char_embeddings: [ batch_size, max_length_sentence, max_length_word, char_dim]
                 char_embeddings = tf.nn.embedding_lookup(_char_embeddings,
                         self.char_ids, name="char_embeddings")
 
                 # put the time dimension on axis=1
                 s = tf.shape(char_embeddings)
+                # new shape: [ batch_size*max_length_sentence, max_length_word, char_dim]
                 char_embeddings = tf.reshape(char_embeddings,
                         shape=[s[0]*s[1], s[-2], self.config.dim_char])
+                # word_lengths: [batch_size, max_length of sentence]
                 word_lengths = tf.reshape(self.word_lengths, shape=[s[0]*s[1]])
 
                 # bi lstm on chars
+                # state_is_tuple = True: accepted and returned states are 2-tuples of the c_state and m_state.
                 cell_fw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_char,
                         state_is_tuple=True)
                 cell_bw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_char,
                         state_is_tuple=True)
+                # shape: [batch_size, max_length_sentence, max_length_word, hidden_size_char]
+                # _output: ((output_fw, output_bw), (output_state_fw, output_state_bw))
+                # 目前这里有些不明白
                 _output = tf.nn.bidirectional_dynamic_rnn(
                         cell_fw, cell_bw, char_embeddings,
-                        sequence_length=word_lengths, dtype=tf.float32)
+                        sequence_length=word_lengths, dtype=tf.float32,
+                        time_major=False)
 
                 # read and concat output
                 _, ((_, output_fw), (_, output_bw)) = _output
+                # [batch_size, max_length_sentence, max_length_word, hidden_size_char*2]
                 output = tf.concat([output_fw, output_bw], axis=-1)
 
-                # shape = (batch size, max sentence length, char hidden size)
+                # shape = [batch size, max sentence length, hidden_size_char*2]
                 output = tf.reshape(output,
                         shape=[s[0], s[1], 2*self.config.hidden_size_char])
+                # 将word embedding与char embedding连接起来
+                # word_embeddings: [ batch_size, max_length_sentence, word_dim]
+                # char_embeddings: [ batch_size, max_length_sentence, hidden_size_char*2]
+                # => [ batch_size, max_length_sentence, hidden_size_char*2 + word_dim]
                 word_embeddings = tf.concat([word_embeddings, output], axis=-1)
-
+        # dropout
         self.word_embeddings =  tf.nn.dropout(word_embeddings, self.dropout)
 
 
