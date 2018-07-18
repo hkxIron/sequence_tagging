@@ -154,6 +154,9 @@ class NERModel(BaseModel):
                 # shape: [batch_size, max_length_sentence, max_length_word, hidden_size_char]
                 # _output: ((output_fw, output_bw), (output_state_fw, output_state_bw))
                 # 目前这里有些不明白
+                # ((output_fw, output_bw), (output_state_fw, output_state_bw)) = tf.nn.bidirectional_dynamic_rnn(...)
+                # 其中output_state_fw是dynamic_rnn 的last_state输出,是(cell_state, hidden_state)的tuple
+                # 即 output_state_fw = (cell_state, hidden_state)
                 _output = tf.nn.bidirectional_dynamic_rnn(
                         cell_fw, cell_bw, char_embeddings,
                         sequence_length=word_lengths, dtype=tf.float32,
@@ -173,6 +176,7 @@ class NERModel(BaseModel):
                 # => [ batch_size, max_length_sentence, hidden_size_char*2 + word_dim]
                 word_embeddings = tf.concat([word_embeddings, output], axis=-1)
         # dropout
+        # [ batch_size, max_length_sentence, hidden_size_char*2 + word_dim]
         self.word_embeddings =  tf.nn.dropout(word_embeddings, self.dropout)
 
 
@@ -185,22 +189,31 @@ class NERModel(BaseModel):
         with tf.variable_scope("bi-lstm"):
             cell_fw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_lstm)
             cell_bw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_lstm)
+            # word_embeddings: [ batch_size, max_length_sentence, hidden_size_char*2 + word_dim]
+            # output_fw: [ batch_size, max_length_sentence, hidden_size_lstm]
+            # output_bw: [ batch_size, max_length_sentence, hidden_size_lstm]
             (output_fw, output_bw), _ = tf.nn.bidirectional_dynamic_rnn(
                     cell_fw, cell_bw, self.word_embeddings,
                     sequence_length=self.sequence_lengths, dtype=tf.float32)
+            # output: [ batch_size, max_length_sentence, hidden_size_lstm*2]
             output = tf.concat([output_fw, output_bw], axis=-1)
             output = tf.nn.dropout(output, self.dropout)
 
         with tf.variable_scope("proj"):
+            # W: [2*self.config.hidden_size_lstm, ntags]
             W = tf.get_variable("W", dtype=tf.float32,
                     shape=[2*self.config.hidden_size_lstm, self.config.ntags])
 
+            # b: [ntags]
             b = tf.get_variable("b", shape=[self.config.ntags],
                     dtype=tf.float32, initializer=tf.zeros_initializer())
 
             nsteps = tf.shape(output)[1]
+            # output: [ batch_size*max_length_sentence, hidden_size_lstm*2]
             output = tf.reshape(output, [-1, 2*self.config.hidden_size_lstm])
+            # pred: [ batch_size*max_length_sentence, ntags]
             pred = tf.matmul(output, W) + b
+            # logits: [ batch_size, max_length_sentence, ntags]
             self.logits = tf.reshape(pred, [-1, nsteps, self.config.ntags])
 
 
@@ -214,6 +227,7 @@ class NERModel(BaseModel):
         outside the graph.
         """
         if not self.config.use_crf:
+            # labels_pred: [batch_size, max_length_sentence, ntags]
             self.labels_pred = tf.cast(tf.argmax(self.logits, axis=-1),
                     tf.int32)
 
@@ -221,14 +235,25 @@ class NERModel(BaseModel):
     def add_loss_op(self):
         """Defines the loss"""
         if self.config.use_crf:
+            # logits: [batch_size, max_length_sentence, ntags]
+            # labels: [batch size, max_length_sentence]
+            # log_likelihood: [batch_size]
+            # transition_params: [num_tags, num_tags]
             log_likelihood, trans_params = tf.contrib.crf.crf_log_likelihood(
                     self.logits, self.labels, self.sequence_lengths)
             self.trans_params = trans_params # need to evaluate it for decoding
+            # loss: scalar
             self.loss = tf.reduce_mean(-log_likelihood)
         else:
+            # logits: [batch_size, max_length_sentence, ntags]
+            # labels: [batch size, max_length_sentence]
+            # losses: [batch_size, max_length_sentence]
             losses = tf.nn.sparse_softmax_cross_entropy_with_logits(
                     logits=self.logits, labels=self.labels)
+            # sequence_lengths: [batch_size]
+            # mask: [batch_size, batch_size]
             mask = tf.sequence_mask(self.sequence_lengths)
+            # losses: [batch_size, ] ?
             losses = tf.boolean_mask(losses, mask)
             self.loss = tf.reduce_mean(losses)
 
@@ -373,6 +398,6 @@ class NERModel(BaseModel):
         if type(words[0]) == tuple:
             words = zip(*words)
         pred_ids, _ = self.predict_batch([words])
-        preds = [self.idx_to_tag[idx] for idx in list(pred_ids[0])]
+        pred_tags = [self.idx_to_tag[idx] for idx in list(pred_ids[0])]
 
-        return preds
+        return pred_tags
