@@ -1,5 +1,6 @@
 import os
 import tensorflow as tf
+from tensorflow.python import debug as tf_debug
 
 
 class BaseModel(object):
@@ -60,8 +61,10 @@ class BaseModel(object):
 
     def initialize_session(self):
         """Defines self.sess and initialize the variables"""
-        self.logger.info("Initializing tf session")
+        self.logger.info("Initializing tf session tf_debug: {}", self.config.debug_mode)
         self.sess = tf.Session()
+        if self.config.tfdbg_mode:
+            self.sess = tf_debug.LocalCLIDebugWrapperSession(self.sess)
         self.sess.run(tf.global_variables_initializer())
         self.saver = tf.train.Saver()
 

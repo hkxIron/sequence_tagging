@@ -25,6 +25,8 @@ def get_logger(filename):
 
     return logger
 
+def print_dict(dt):
+    return "\n".join(["{}:{:04.2f}".format(k, str(v)) for k, v in dt.items()])
 
 class Progbar(object):
     """Progbar class copied from keras (https://github.com/fchollet/keras/)

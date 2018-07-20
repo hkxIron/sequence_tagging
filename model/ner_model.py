@@ -2,12 +2,11 @@
 #   https://guillaumegenthial.github.io/serving.html
 
 import numpy as np
-import os
 import tensorflow as tf
 
 
 from .data_utils import minibatches, pad_sequences, get_chunks
-from .general_utils import Progbar
+from .general_utils import Progbar, print_dict
 from .base_model import BaseModel
 
 
@@ -19,6 +18,7 @@ class NERModel(BaseModel):
         self.idx_to_tag = {idx: tag for tag, idx in
                            self.config.vocab_tags.items()}
 
+        self.params = {}
 
     def add_placeholders(self):
         """Define placeholders = entries to computational graph"""
@@ -151,17 +151,22 @@ class NERModel(BaseModel):
                         state_is_tuple=True)
                 cell_bw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_char,
                         state_is_tuple=True)
-                # shape: [batch_size, max_length_sentence, max_length_word, hidden_size_char]
                 # _output: ((output_fw, output_bw), (output_state_fw, output_state_bw))
-                # 目前这里有些不明白
+                # output_fw: [batch_size * max_length_sentence, char_dim]
                 # ((output_fw, output_bw), (output_state_fw, output_state_bw)) = tf.nn.bidirectional_dynamic_rnn(...)
                 # 其中output_state_fw是dynamic_rnn 的last_state输出,是(cell_state, hidden_state)的tuple
-                # 即 output_state_fw = (cell_state, hidden_state)
+                # 即 output_state_fw = (cell_state, hidden_state) = (_, output_fw)
+                # 通过调试运行如下：
+                # _output:tuple(tuple( array(99,9,100), array(99,9,100)),
+                #               tuple(lstmStateTuple(c=array(99,100), h= array(99,100)) ,
+                #                    lstmStateTuple(c=array(99,100), h= array(99,100))
+                #               )
+                # )
                 _output = tf.nn.bidirectional_dynamic_rnn(
                         cell_fw, cell_bw, char_embeddings,
                         sequence_length=word_lengths, dtype=tf.float32,
                         time_major=False)
-
+                if self.config.debug_mode: self.params["bi_dynamic_rnn"] = _output
                 # read and concat output
                 _, ((_, output_fw), (_, output_bw)) = _output
                 # [batch_size, max_length_sentence, max_length_word, hidden_size_char*2]
@@ -329,12 +334,16 @@ class NERModel(BaseModel):
         for i, (words, labels) in enumerate(minibatches(train, batch_size)):
             fd, _ = self.get_feed_dict(words, labels, self.config.lr,
                     self.config.dropout)
-
-            _, train_loss, summary = self.sess.run(
-                    [self.train_op, self.loss, self.merged], feed_dict=fd)
+        # labels: [batch_size, max_sentence_len],2维list,注意：每个batch里的最长句子长度可能不一样
+        # word_ids: [batch_size, max_sentence_len] , 2维list
+        # sequence_lengths: [7, 9, 7, 7, 9, 7, 7, 9] , 表示每个句子的长度, 1维list
+            _, train_loss, summary, params = self.sess.run(
+                    [self.train_op, self.loss, self.merged, self.params], feed_dict=fd)
 
             prog.update(i + 1, [("train loss", train_loss)])
 
+            if i == 0:
+                print_dict(params)
             # tensorboard
             if i % 10 == 0:
                 self.file_writer.add_summary(summary, epoch*nbatches + i)
