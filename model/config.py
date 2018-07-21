@@ -1,5 +1,5 @@
 import os
-
+import platform
 
 from .general_utils import get_logger
 from .data_utils import get_trimmed_glove_vectors, load_vocab, \
@@ -65,7 +65,11 @@ class Config():
     dim_char = 100
 
     # glove files
-    data_prefix = "../../dataset/seq_tagging/"
+    sysstr = platform.system()
+    if sysstr == "Windows":
+        data_prefix = "d:/dataset/seq_tagging/" # 在windows下只好用绝对路径了
+    else:
+        data_prefix = "../../dataset/seq_tagging/"
     filename_glove = "{}/glove.6B/glove.6B.{}d.txt".format(data_prefix ,dim_word)
     # trimmed embeddings (created from glove_filename with build_data.py)
     filename_trimmed = "{}/glove.6B.{}d.trimmed.npz".format(data_prefix ,dim_word)
