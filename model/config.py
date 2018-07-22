@@ -45,10 +45,10 @@ class Config():
         self.ntags      = len(self.vocab_tags)
 
         # 2. get processing functions that map str -> id
-        self.processing_word = get_processing_word(self.vocab_words,
-                self.vocab_chars, lowercase=True, chars=self.use_chars)
-        self.processing_tag  = get_processing_word(self.vocab_tags,
-                lowercase=False, allow_unk=False)
+        self.processing_word_fuc = get_processing_word(self.vocab_words,
+                                                       self.vocab_chars, lowercase=True, chars=self.use_chars)
+        self.processing_tag_fuc  = get_processing_word(self.vocab_tags,
+                                                       lowercase=False, allow_unk=False)
 
         # 3. get pre-trained embeddings
         self.embeddings = (get_trimmed_glove_vectors(self.filename_trimmed)
@@ -80,6 +80,7 @@ class Config():
     # filename_test = "data/coNLL/eng/eng.testb.iob"
     # filename_train = "data/coNLL/eng/eng.train.iob"
 
+    # 为了演示,将dev,test,train设成相同
     filename_dev = filename_test = filename_train = "{}/test.txt".format(data_prefix) # test
 
     max_iter = None # if not None, max number of examples in Dataset
@@ -108,6 +109,5 @@ class Config():
     use_crf = True # if crf, training is 1.7x slower on CPU
     use_chars = True # if char embedding, training is 3.5x slower on CPU
 
-    #
     tfdbg_mode = False
     debug_mode = True

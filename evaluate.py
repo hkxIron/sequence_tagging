@@ -76,8 +76,8 @@ def main():
     model.restore_session(config.dir_model)
 
     # create dataset
-    test  = CoNLLDataset(config.filename_test, config.processing_word,
-                         config.processing_tag, config.max_iter)
+    test  = CoNLLDataset(config.filename_test, config.processing_word_fuc,
+                         config.processing_tag_fuc, config.max_iter)
 
     # evaluate and interact
     model.evaluate(test)

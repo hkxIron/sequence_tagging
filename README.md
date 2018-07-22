@@ -17,6 +17,7 @@ B-PER  O     O  B-LOC I-LOC
 
 
 ## Model
+![model structure](data/lstm_crf.png)
 
 Similar to [Lample et al.](https://arxiv.org/abs/1603.01360) and [Ma and Hovy](https://arxiv.org/pdf/1603.01354.pdf).
 

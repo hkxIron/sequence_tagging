@@ -30,11 +30,11 @@ class NERModel(BaseModel):
         self.sequence_lengths = tf.placeholder(tf.int32, shape=[None],
                         name="sequence_lengths")
 
-        # shape = (batch size, max length of sentence, max length of word)
+        # shape = (batch size, max length of sentence in batch, max length of word in batch)
         self.char_ids = tf.placeholder(tf.int32, shape=[None, None, None],
                         name="char_ids")
 
-        # shape = (batch_size, max_length of sentence)
+        # shape = (batch_size, max_length of sentence in batch)
         self.word_lengths = tf.placeholder(tf.int32, shape=[None, None],
                         name="word_lengths")
 
@@ -44,7 +44,7 @@ class NERModel(BaseModel):
 
         # hyper parameters
         self.dropout = tf.placeholder(dtype=tf.float32, shape=[],
-                        name="dropout")
+                        name="dropout") # 此处dropout为keep_prob
         self.lr = tf.placeholder(dtype=tf.float32, shape=[],
                         name="lr")
 
@@ -55,7 +55,7 @@ class NERModel(BaseModel):
         Args:
             words: list of sentences. A sentence is a list of ids of a list of
                 words. A word is a list of ids
-            labels: list of ids
+            labels: list of ids, 二维列表list, [batch, sentence_length]
             lr: (float) learning rate
             dropout: (float) keep prob
 
@@ -65,14 +65,27 @@ class NERModel(BaseModel):
         """
         # perform padding of the given data
         if self.config.use_chars:
+            # words=x_batch: [x=[char_ids=([6,9,1],[2,3,4],...,[5]), word_id=(18,20,15,...)],x=[...]]
+            # labels=y_batch:[tag_id=[6,1,7,7,4],tag_id=[6,3,4,9],...]
+            #
+            # word: [char_ids=([6, 24, 9, 1], [2, 18, 24, 0, 0, 24], [23, 18, 3, 24, 4], [18, 1], [7, 24, 8], [15, 25, 0, 26], [5]),
+            #         word_id=(18, 20, 15, 11, 12, 0, 2)]
+            # label: tag_id=[6,1,7,7,4,3,7]
+            # char_ids: (([6,24,9,1], [2,18,24,0,0,24]), ...)
+            # word_ids: 二维列表[[6,5,...],[7,8,...]],此时传入的元素都是ids
             char_ids, word_ids = zip(*words)
-            word_ids, sequence_lengths = pad_sequences(word_ids, 0)
-            char_ids, word_lengths = pad_sequences(char_ids, pad_tok=0,
-                nlevels=2)
+            # word, paddding到此batch中最长句子的长度
+            # sequence_lengths: 一维list, 此batch中每个句子padding前的长度
+            # 每个句子padding到此batch中最长句子的长度
+            word_ids, sequence_lengths = pad_sequences(word_ids, 0) # padding是在使用时才做,而并不存储
+            # word_lengths: 二维list,此batch中每个句子每个单词的长度
+            # 每个单词padding到此batch中最长单词的长度
+            char_ids, word_lengths = pad_sequences(char_ids, pad_tok=0, nlevels=2)
         else:
             word_ids, sequence_lengths = pad_sequences(words, 0)
 
         # build feed dictionary
+        # 注意:key为placeholder
         feed = {
             self.word_ids: word_ids,
             self.sequence_lengths: sequence_lengths
@@ -115,12 +128,12 @@ class NERModel(BaseModel):
                 # You should use tf.Variable with argument trainable=False instead of tf.constant,
                 # otherwise you risk memory issues!
                 _word_embeddings = tf.Variable(
-                        self.config.embeddings,
+                        self.config.embeddings, # glove vector:
                         name="_word_embeddings",
                         dtype=tf.float32,
                         trainable=self.config.train_embeddings)
-            # word_ids: [batch size, max length of sentence in batch]
-            # word_embeddings: [ batch_size, max_length_sentence, word_dim]
+            # word_ids: [batch size, max_max_sentence_len ]
+            # word_embeddings: [ batch_size=8, max_sentence_len = 9, word_dim = 300]
             word_embeddings = tf.nn.embedding_lookup(_word_embeddings,
                     self.word_ids, name="word_embeddings")
 
@@ -133,17 +146,21 @@ class NERModel(BaseModel):
                         dtype=tf.float32,
                         shape=[self.config.nchars, self.config.dim_char])
                 # char_ids: [ batch size, max length of sentence, max length of word ]
-                # char_embeddings: [ batch_size, max_length_sentence, max_length_word, char_dim]
+                # char_embeddings: [ batch_size=8, max_sentence_len = 9, max_word_len =9, char_dim= 100]
                 char_embeddings = tf.nn.embedding_lookup(_char_embeddings,
                         self.char_ids, name="char_embeddings")
 
                 # put the time dimension on axis=1
-                s = tf.shape(char_embeddings)
-                # new shape: [ batch_size*max_length_sentence, max_length_word, char_dim]
+                char_embeddings_shape = tf.shape(char_embeddings)
+
+                self.params["char_embeddings"] = char_embeddings
+                # shape:[ batch_size, max_sentence_len, max_word_len, char_dim]
+                # new shape:[ batch_size*max_sentence_len, max_word_len, char_dim]
                 char_embeddings = tf.reshape(char_embeddings,
-                        shape=[s[0]*s[1], s[-2], self.config.dim_char])
-                # word_lengths: [batch_size, max_length of sentence]
-                word_lengths = tf.reshape(self.word_lengths, shape=[s[0]*s[1]])
+                                             shape=[char_embeddings_shape[0]*char_embeddings_shape[1], char_embeddings_shape[-2], self.config.dim_char])
+                # word_lengths: [batch_size, max_sentence_len]
+                # new word_lengths: [batch_size*max_sentence_len]
+                word_lengths = tf.reshape(self.word_lengths, shape=[char_embeddings_shape[0]*char_embeddings_shape[1]])
 
                 # bi lstm on chars
                 # state_is_tuple = True: accepted and returned states are 2-tuples of the c_state and m_state.
@@ -152,36 +169,45 @@ class NERModel(BaseModel):
                 cell_bw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_char,
                         state_is_tuple=True)
                 # _output: ((output_fw, output_bw), (output_state_fw, output_state_bw))
-                # output_fw: [batch_size * max_length_sentence, char_dim]
+                # output_fw: [batch_size(=8) * max_sentence_len(=9)=72, max_word_len(=9), hidden_size_char =100]
+                # output_hidden_state_fw: [batch*max_sentence_len, hidden_size_char]
+                #
                 # ((output_fw, output_bw), (output_state_fw, output_state_bw)) = tf.nn.bidirectional_dynamic_rnn(...)
                 # 其中output_state_fw是dynamic_rnn 的last_state输出,是(cell_state, hidden_state)的tuple
                 # 即 output_state_fw = (cell_state, hidden_state) = (_, output_fw)
                 # 通过调试运行如下：
-                # _output:tuple(tuple( array(99,9,100), array(99,9,100)),
-                #               tuple(lstmStateTuple(c=array(99,100), h= array(99,100)) ,
-                #                    lstmStateTuple(c=array(99,100), h= array(99,100))
+                # _output:tuple(tuple( array(72,9,100),  # 正向output,所谓的output就是序列中所有的hidden_state输出值
+                #                      array(72,9,100)), # 反向output
+                #               tuple(lstmStateTuple(c=array(72,100), h= array(72,100)) , # 正向,state永远保持最近的一个,而不会记录所有历史
+                #                     lstmStateTuple(c=array(72,100), h= array(72,100)) # 反向
                 #               )
                 # )
+                # char_embeddings:[ batch_size*max_sentence_len, max_word_len, char_dim]
+                # word_lengths: [batch_size*max_sentence_len],每个元素代表每个句子里有多少单词
                 _output = tf.nn.bidirectional_dynamic_rnn(
                         cell_fw, cell_bw, char_embeddings,
-                        sequence_length=word_lengths, dtype=tf.float32,
+                        sequence_length=word_lengths, # shape:[batch*max_sentence_len]
+                        dtype=tf.float32,
                         time_major=False)
-                if self.config.debug_mode: self.params["bi_dynamic_rnn"] = _output
+                self.params["bi_dynamic_rnn"] = _output
                 # read and concat output
-                _, ((_, output_fw), (_, output_bw)) = _output
-                # [batch_size, max_length_sentence, max_length_word, hidden_size_char*2]
-                output = tf.concat([output_fw, output_bw], axis=-1)
 
-                # shape = [batch size, max sentence length, hidden_size_char*2]
+                # output_hidden_state_fw: [batch*max_sentence_len, hidden_size_char]
+                # output_hidden_state_bw: [batch*max_sentence_len, hidden_size_char]
+                _, ((_, output_hidden_state_fw), (_, output_hidden_state_bw)) = _output
+                # output: [batch_size*max_sentence_len, hidden_size_char*2]
+                output = tf.concat([output_hidden_state_fw, output_hidden_state_bw], axis=-1)
+
+                # new output: [batch size, max_sentence_len, hidden_size_char*2]
                 output = tf.reshape(output,
-                        shape=[s[0], s[1], 2*self.config.hidden_size_char])
+                                    shape=[char_embeddings_shape[0], char_embeddings_shape[1], 2 * self.config.hidden_size_char])
                 # 将word embedding与char embedding连接起来
-                # word_embeddings: [ batch_size, max_length_sentence, word_dim]
-                # char_embeddings: [ batch_size, max_length_sentence, hidden_size_char*2]
-                # => [ batch_size, max_length_sentence, hidden_size_char*2 + word_dim]
+                # word_embeddings: [ batch_size, max_sentence_len, word_dim]
+                # char_embeddings: [ batch_size, max_sentence_len, hidden_size_char*2]
+                # => [ batch_size, max_length_sentence, hidden_size_char*2 + word_dim],即 [8, 8, 100*2+300 = 500]
                 word_embeddings = tf.concat([word_embeddings, output], axis=-1)
         # dropout
-        # [ batch_size, max_length_sentence, hidden_size_char*2 + word_dim]
+        # [ batch_size, max_sentence_len, hidden_size_char*2 + word_dim]
         self.word_embeddings =  tf.nn.dropout(word_embeddings, self.dropout)
 
 
@@ -194,31 +220,33 @@ class NERModel(BaseModel):
         with tf.variable_scope("bi-lstm"):
             cell_fw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_lstm)
             cell_bw = tf.contrib.rnn.LSTMCell(self.config.hidden_size_lstm)
-            # word_embeddings: [ batch_size, max_length_sentence, hidden_size_char*2 + word_dim]
-            # output_fw: [ batch_size, max_length_sentence, hidden_size_lstm]
-            # output_bw: [ batch_size, max_length_sentence, hidden_size_lstm]
+            # word_embeddings: [ batch_size, max_sentence_len, hidden_size_char*2 + word_dim ]
+            # sequence_lengths: [batch_size = 8], 如:[7,9,7,7,9,7,7,9]
+            # output_fw: [ batch_size, max_sentence_len, hidden_size_lstm]
+            # output_bw: [ batch_size, max_sentence_len, hidden_size_lstm]
             (output_fw, output_bw), _ = tf.nn.bidirectional_dynamic_rnn(
                     cell_fw, cell_bw, self.word_embeddings,
                     sequence_length=self.sequence_lengths, dtype=tf.float32)
-            # output: [ batch_size, max_length_sentence, hidden_size_lstm*2]
+            # output: [ batch_size, max_sentence_len, hidden_size_lstm*2]
             output = tf.concat([output_fw, output_bw], axis=-1)
-            output = tf.nn.dropout(output, self.dropout)
+            output = tf.nn.dropout(output, self.dropout) # dropout:一般为keep prob,只在训练时存在
 
         with tf.variable_scope("proj"):
-            # W: [2*self.config.hidden_size_lstm, ntags]
+            # 将 embedding映射成tags
+            # W: [self.config.hidden_size_lstm*2, ntags=9]
             W = tf.get_variable("W", dtype=tf.float32,
                     shape=[2*self.config.hidden_size_lstm, self.config.ntags])
 
             # b: [ntags]
             b = tf.get_variable("b", shape=[self.config.ntags],
                     dtype=tf.float32, initializer=tf.zeros_initializer())
-
+            # nsteps: max_sentence_len
             nsteps = tf.shape(output)[1]
-            # output: [ batch_size*max_length_sentence, hidden_size_lstm*2]
+            # new output: [batch_size*max_sentence_len, hidden_size_lstm*2]
             output = tf.reshape(output, [-1, 2*self.config.hidden_size_lstm])
             # pred: [ batch_size*max_length_sentence, ntags]
             pred = tf.matmul(output, W) + b
-            # logits: [ batch_size, max_length_sentence, ntags]
+            # logits: [batch_size, max_sentence_len, ntags]
             self.logits = tf.reshape(pred, [-1, nsteps, self.config.ntags])
 
 
@@ -232,7 +260,7 @@ class NERModel(BaseModel):
         outside the graph.
         """
         if not self.config.use_crf:
-            # labels_pred: [batch_size, max_length_sentence, ntags]
+            # labels_pred: [batch_size, max_sentence_len, ntags]
             self.labels_pred = tf.cast(tf.argmax(self.logits, axis=-1),
                     tf.int32)
 
@@ -240,27 +268,33 @@ class NERModel(BaseModel):
     def add_loss_op(self):
         """Defines the loss"""
         if self.config.use_crf:
-            # logits: [batch_size, max_length_sentence, ntags]
-            # labels: [batch size, max_length_sentence]
-            # log_likelihood: [batch_size]
-            # transition_params: [num_tags, num_tags]
+            # logits: [batch_size, max_sentence_len, ntags], 注意logits值为各个tag的概率
+            # labels: [batch size, max_sentence_len], labels为目标tag的index
+            # log_likelihood: [batch_size=8],即输出为每个句子预测出该句的所有ner标签的log(Prob)之和
+            # transition_params: [num_tags=9, num_tags=9]
+            # sequence_lengths: [batch_size = 8], 如:[7,9,7,7,9,7,7,9]
             log_likelihood, trans_params = tf.contrib.crf.crf_log_likelihood(
                     self.logits, self.labels, self.sequence_lengths)
             self.trans_params = trans_params # need to evaluate it for decoding
-            # loss: scalar
-            self.loss = tf.reduce_mean(-log_likelihood)
+            self.params["log_likelihood"] = log_likelihood
+            self.params["trans_params"] = trans_params
+            # loss: scalar, 我们希望log(Prob)最大,也即-log(Prob)最小
+            self.loss = tf.reduce_mean(-log_likelihood) # 此处是对batch求平均
         else:
-            # logits: [batch_size, max_length_sentence, ntags]
-            # labels: [batch size, max_length_sentence]
-            # losses: [batch_size, max_length_sentence]
+            # logits: [batch_size, max_sentence_len, ntags]
+            # labels: [batch size, max_sentence_len]
+            # losses: [batch_size, max_sentence_len]
             losses = tf.nn.sparse_softmax_cross_entropy_with_logits(
                     logits=self.logits, labels=self.labels)
-            # sequence_lengths: [batch_size]
-            # mask: [batch_size, batch_size]
+            # sequence_lengths: [batch_size = 8], 如:[7,9,7,7,9,7,7,9]
+            # mask: [batch_size=8, max_sentence_len=9], 值为bool的矩阵
             mask = tf.sequence_mask(self.sequence_lengths)
-            # losses: [batch_size, ] ?
-            losses = tf.boolean_mask(losses, mask)
-            self.loss = tf.reduce_mean(losses)
+            self.params["mask"] = mask
+            # new losses: [ num_of_word_count_in_batch ],
+            # 它的shape为一个batch中所有句子的长度之和,每个元素为该句子的ner序列 log(Prob)
+            losses_masked = tf.boolean_mask(losses, mask)
+            self.params["losses_masked"] = losses_masked
+            self.loss = tf.reduce_mean(losses_masked)
 
         # for tensorboard
         tf.summary.scalar("loss", self.loss)
@@ -290,17 +324,24 @@ class NERModel(BaseModel):
             sequence_length
 
         """
+        # 注意:测试阶段的dropout= 1.0
         fd, sequence_lengths = self.get_feed_dict(words, dropout=1.0)
 
         if self.config.use_crf:
             # get tag scores and transition params of CRF
             viterbi_sequences = []
+            # logits: [batch_size, max_sentence_len, ntags], 注意logits值为各个tag的概率
+            # transition_params: [num_tags=9, num_tags=9]
             logits, trans_params = self.sess.run(
                     [self.logits, self.trans_params], feed_dict=fd)
 
+            # sequence_lengths: [batch_size = 8]
+            # logits: [batch_size, max_sentence_len, ntags], 注意logits值为各个tag的概率
             # iterate over the sentences because no batching in vitervi_decode
+            # 由于对batch进行遍历,所以batch = 1
             for logit, sequence_length in zip(logits, sequence_lengths):
                 logit = logit[:sequence_length] # keep only the valid steps
+                # tf中的维特比解码无法使用batch模式,只能逐条解码
                 viterbi_seq, viterbi_score = tf.contrib.crf.viterbi_decode(
                         logit, trans_params)
                 viterbi_sequences += [viterbi_seq]
@@ -331,25 +372,34 @@ class NERModel(BaseModel):
         prog = Progbar(target=nbatches)
 
         # iterate over dataset
+        # words: list of zip obj, labels: 2维list
         for i, (words, labels) in enumerate(minibatches(train, batch_size)):
             fd, _ = self.get_feed_dict(words, labels, self.config.lr,
                     self.config.dropout)
-        # labels: [batch_size, max_sentence_len],2维list,注意：每个batch里的最长句子长度可能不一样
-        # word_ids: [batch_size, max_sentence_len] , 2维list
+        # max_sentence_len: 代表此batch中的最大句子长度,max_word_len:此batch中最长单词的长度
+        # labels: [batch_size=8, max_sentence_len=9],2维list,注意：每个batch里的最长句子长度可能不一样, batch:8, max_sentence_len:每次不一样
+        # word_ids: [batch_size = 8, max_sentence_len = 9] , 2维list, [8, 9]
         # sequence_lengths: [7, 9, 7, 7, 9, 7, 7, 9] , 表示每个句子的长度, 1维list
-            _, train_loss, summary, params = self.sess.run(
+        # char_ids: [batch=8, max_sentence_len=9, max_word_len=9], 3维list,max_word_len为这个batch里最长的单词长度
+        # word_lengths: [batch=8, max_sentence_len = 9]
+            if self.config.debug_mode:
+                _, train_loss, summary, params = self.sess.run(
                     [self.train_op, self.loss, self.merged, self.params], feed_dict=fd)
-
+                if i == 0:
+                    print_dict(params)
+            else:
+                _, train_loss, summary = self.sess.run(
+                    [self.train_op, self.loss, self.merged], feed_dict=fd)
+            # 更新进度条
             prog.update(i + 1, [("train loss", train_loss)])
 
-            if i == 0:
-                print_dict(params)
             # tensorboard
             if i % 10 == 0:
                 self.file_writer.add_summary(summary, epoch*nbatches + i)
 
+        # 在开发集上进行验证
         metrics = self.run_evaluate(dev)
-        msg = " - ".join(["{} {:04.2f}".format(k, v)
+        msg = "dev set:"+" - ".join(["{} {:04.2f}".format(k, v)
                 for k, v in metrics.items()])
         self.logger.info(msg)
 
@@ -366,6 +416,7 @@ class NERModel(BaseModel):
             metrics: (dict) metrics["acc"] = 98.4, ...
 
         """
+        self.logger.info("Testing model over test set(ner model)")
         accs = []
         correct_preds, total_correct, total_preds = 0., 0., 0.
         for words, labels in minibatches(test, self.config.batch_size):

@@ -32,22 +32,28 @@ def main():
     vocab_words, vocab_tags = get_vocabs([train, dev, test])
     vocab_glove = get_glove_vocab(config.filename_glove)
 
+    # 与glove中的词集合求交,只保留有向量的那些词
     vocab = vocab_words & vocab_glove
     vocab.add(UNK)
     vocab.add(NUM)
 
-    # Save vocab
+    # Save vocab, vocab: set()
+    print("write vocab set to file: " + config.filename_words)
     write_vocab(vocab, config.filename_words)
+    print("write vocab tags set to file: " + config.filename_tags)
     write_vocab(vocab_tags, config.filename_tags)
 
-    # Trim GloVe Vectors
-    vocab = load_vocab(config.filename_words)
-    export_trimmed_glove_vectors(vocab, config.filename_glove,
+    # Trim GloVe Vectors, 只加载那些在词集合中出现过的词向量
+    vocab_to_index_dict = load_vocab(config.filename_words)
+    # vocab: dict, vocab[word] = word_index
+    print("export trimmed vocab embedding to file: " + config.filename_trimmed)
+    export_trimmed_glove_vectors(vocab_to_index_dict, config.filename_glove,
                                 config.filename_trimmed, config.dim_word)
 
     # Build and save char vocab
     train = CoNLLDataset(config.filename_train)
     vocab_chars = get_char_vocab(train)
+    print("save char set to file:"+ config.filename_chars)
     write_vocab(vocab_chars, config.filename_chars)
 
 

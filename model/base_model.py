@@ -19,6 +19,11 @@ class BaseModel(object):
         self.sess   = None
         self.saver  = None
 
+    def run_evaluate(self, test):
+        pass
+
+    def run_epoch(self, train, dev, epoch):
+        pass
 
     def reinitialize_weights(self, scope_name):
         """Reinitializes the weights of a given layer"""
@@ -61,7 +66,7 @@ class BaseModel(object):
 
     def initialize_session(self):
         """Defines self.sess and initialize the variables"""
-        self.logger.info("Initializing tf session tf_debug: {}", self.config.debug_mode)
+        self.logger.info("Initializing tf session tf_debug: {}".format(self.config.debug_mode))
         self.sess = tf.Session()
         if self.config.tfdbg_mode:
             self.sess = tf_debug.LocalCLIDebugWrapperSession(self.sess)
@@ -118,8 +123,8 @@ class BaseModel(object):
         self.add_summary() # tensorboard
 
         for epoch in range(self.config.nepochs):
-            self.logger.info("Epoch {:} out of {:}".format(epoch + 1,
-                        self.config.nepochs))
+            self.logger.info("Epoch {:} out of {:} lr:{:.5f}".format(epoch + 1,
+                        self.config.nepochs, self.config.lr))
 
             score = self.run_epoch(train, dev, epoch)
             self.config.lr *= self.config.lr_decay # decay learning rate
@@ -132,7 +137,7 @@ class BaseModel(object):
                 self.logger.info("- new best score!")
             else:
                 nepoch_no_imprv += 1
-                if nepoch_no_imprv >= self.config.nepoch_no_imprv:
+                if nepoch_no_imprv >= self.config.nepoch_no_imprv: # 连续几次batch的score没有提升
                     self.logger.info("- early stopping {} epochs without "\
                             "improvement".format(nepoch_no_imprv))
                     break
@@ -145,8 +150,8 @@ class BaseModel(object):
             test: instance of class Dataset
 
         """
-        self.logger.info("Testing model over test set")
-        metrics = self.run_evaluate(test)
+        self.logger.info("Testing model over test set(base model)")
+        metrics = self.run_evaluate(test) # 此处会去调用继承类的重写的run_evaluate
         msg = " - ".join(["{} {:04.2f}".format(k, v)
                 for k, v in metrics.items()])
         self.logger.info(msg)
