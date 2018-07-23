@@ -26,7 +26,7 @@ class NERModel(BaseModel):
         self.word_ids = tf.placeholder(tf.int32, shape=[None, None],
                         name="word_ids")
 
-        # shape = (batch size)
+        # shape = (batch size), batch中每个句子的长度(即每个句子有多少个词)
         self.sequence_lengths = tf.placeholder(tf.int32, shape=[None],
                         name="sequence_lengths")
 
@@ -34,7 +34,7 @@ class NERModel(BaseModel):
         self.char_ids = tf.placeholder(tf.int32, shape=[None, None, None],
                         name="char_ids")
 
-        # shape = (batch_size, max_length of sentence in batch)
+        # shape = (batch_size, max_length of sentence in batch), batch中每个句子中每个词的长度
         self.word_lengths = tf.placeholder(tf.int32, shape=[None, None],
                         name="word_lengths")
 
