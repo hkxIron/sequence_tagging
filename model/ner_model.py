@@ -426,11 +426,12 @@ class NERModel(BaseModel):
                                              sequence_lengths):
                 lab      = lab[:length]
                 lab_pred = lab_pred[:length]
+                # 这个准确率计算的是一个句子中所有标签的准确率
                 accs    += [a==b for (a, b) in zip(lab, lab_pred)]
 
+                # result = [("PER", 0, 2), ("LOC", 3, 4)]， 即(chunk_type, chunk_start, chunk_end)
                 lab_chunks      = set(get_chunks(lab, self.config.vocab_tags))
-                lab_pred_chunks = set(get_chunks(lab_pred,
-                                                 self.config.vocab_tags))
+                lab_pred_chunks = set(get_chunks(lab_pred, self.config.vocab_tags))
 
                 correct_preds += len(lab_chunks & lab_pred_chunks)
                 total_preds   += len(lab_pred_chunks)
