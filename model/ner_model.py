@@ -1,5 +1,6 @@
 # blog: https://guillaumegenthial.github.io/sequence-tagging-with-tensorflow.html
 #   https://guillaumegenthial.github.io/serving.html
+# 最新作者的代码已经使用 tf.estimator与tf.data: https://github.com/guillaumegenthial/tf_ner
 
 import numpy as np
 import tensorflow as tf
