@@ -268,7 +268,8 @@ class NERModel(BaseModel):
     def add_loss_op(self):
         """Defines the loss"""
         if self.config.use_crf:
-            # logits: [batch_size, max_sentence_len, ntags], 注意logits值为各个tag的概率
+            # logits: [batch_size, max_sentence_len, ntags], 注意logits值为各个tag的概率,
+            # 此处用到了各个time_step的输出向量,最后在一起算总loss
             # labels: [batch size, max_sentence_len], labels为目标tag的index
             # log_likelihood: [batch_size=8],即输出为每个句子预测出该句的所有ner标签的log(Prob)之和
             # transition_params: [num_tags=9, num_tags=9]
