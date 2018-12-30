@@ -195,7 +195,7 @@ class NERModel(BaseModel):
 
                 # output_hidden_state_fw: [batch*max_sentence_len, hidden_size_char]
                 # output_hidden_state_bw: [batch*max_sentence_len, hidden_size_char]
-                _, ((_, output_hidden_state_fw), (_, output_hidden_state_bw)) = _output
+                (output_fw, output_bw), ((output_cell_state_fw, output_cell_state_bw), (output_hidden_state_fw, output_hidden_state_bw)) = _output
                 # output: [batch_size*max_sentence_len, hidden_size_char*2]
                 output = tf.concat([output_hidden_state_fw, output_hidden_state_bw], axis=-1)
 
