@@ -393,7 +393,8 @@ class NERModel(BaseModel):
                 _, train_loss, summary = self.sess.run(
                     [self.train_op, self.loss, self.merged], feed_dict=fd)
             # 更新进度条
-            prog.update(i + 1, [("train loss", train_loss)])
+            #prog.update(i + 1, [("train loss", train_loss)])  # 同一行更新进度
+            prog.update(i + 1)  # 可以将进度与info分多行显示
 
             # tensorboard
             if i % 10 == 0:
