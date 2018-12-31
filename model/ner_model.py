@@ -292,11 +292,11 @@ class NERModel(BaseModel):
             # mask: [batch_size=8, max_sentence_len=9], 值为bool的矩阵
             mask = tf.sequence_mask(self.sequence_lengths)
             self.params["mask"] = mask
-            # new losses: [ num_of_word_count_in_batch ],
-            # 它的shape为一个batch中所有句子的长度之和,每个元素为该句子的ner序列 log(Prob)
+            # losses_masked: [ num_of_actual_word_count_in_batch ],为一维的数组
+            # 它的shape为一个batch中所有句子的长度之和(除去了padding的元素),每个元素为该句子的ner序列 log(Prob)
             losses_masked = tf.boolean_mask(losses, mask)
+            self.loss = tf.reduce_mean(losses_masked) # 如果不用mask,求mean时的个数就会不对
             self.params["losses_masked"] = losses_masked
-            self.loss = tf.reduce_mean(losses_masked)
 
         # for tensorboard
         tf.summary.scalar("loss", self.loss)
