@@ -308,7 +308,7 @@ def _pad_sequences(sequences, pad_tok, max_length):
     seq_padded = [[1,0,0],[2,4,6]]
     """
     sequence_padded, sequence_length = [], []
-
+    # 这里的sequence_length是真实的length,而非padding之后的length
     for seq in sequences:
         seq = list(seq)
         seq_ = seq[:max_length] + [pad_tok]*max(max_length - len(seq), 0) # 将一个序列追加到另一个序列后面
